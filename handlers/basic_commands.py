@@ -2,7 +2,7 @@
 
 from oled_display import actualizar_pantalla
 from utils import obtener_ip, llamadaSistema
-from logger import log_action
+from logger import setup_logging
 
 def start(bot, message):
     mensaje = """
@@ -33,20 +33,20 @@ def start(bot, message):
     """
     bot.reply_to(message, mensaje)  # Respondemos al comando con el mensaje
     print('start')
-    log_action(message.from_user.username, '/start')
+    setup_logging(message.from_user.username, '/start')
     actualizar_pantalla("Bot iniciado")
 
 def ping(bot, message):
     bot.reply_to(message, "Still alive and kicking!")
     print('ping')
-    log_action(message.from_user.username, '/ping')
+    setup_logging(message.from_user.username, '/ping')
     actualizar_pantalla("Ping recibido")
 
 def fecha(bot, message):
     fecha = llamadaSistema("date")  # Llamada al sistema
     bot.reply_to(message, fecha)  # Respondemos al comando con el mensaje
     print('fecha')
-    log_action(message.from_user.username, '/fecha')
+    setup_logging(message.from_user.username, '/fecha')
     actualizar_pantalla("Fecha mostrada")
     
 def comandos(bot, message):
@@ -60,6 +60,6 @@ def comandos(bot, message):
                     "/minecraft")
     bot.reply_to(message, respuuesta) # Respondemos al comando con el mensaje
     print('comandos')
-    log_action(message.from_user.username, '/comandos')
+    setup_logging(message.from_user.username, '/comandos')
     actualizar_pantalla("comandos")
 

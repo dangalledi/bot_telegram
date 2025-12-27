@@ -64,17 +64,3 @@ def listar_torrents():
     except Exception as e:
         return f"Error al listar torrents: {e}"
       
-# Función para manejar el agregar torrent después de recibir el enlace
-def agregar_torrent_step(bot, message):
-    url = message.text  # Obtener el URL enviado por el usuario
-    respuesta = agregar_torrent(url)
-    bot.send_message(message.chat.id, respuesta)
-
-# Función para manejar la eliminación de torrent después de recibir el ID
-def eliminar_torrent_step(bot, message):
-    try:
-        torrent_id = int(message.text)  # Obtener el ID enviado por el usuario
-        respuesta = eliminar_torrent(torrent_id)
-        bot.send_message(message.chat.id, respuesta)
-    except ValueError:
-        bot.send_message(message.chat.id, "El ID del torrent debe ser un número.")

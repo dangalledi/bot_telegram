@@ -2,12 +2,12 @@
 
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from oled_display import actualizar_pantalla
-from logger import log_action
+from logger import setup_logging
 import os
 
 def admin(bot, message):
     username = message.from_user.username
-    log_action(username, '/admin')  # Registrar la acción
+    setup_logging(username, '/admin')  # Registrar la acción
     print(f"admin -> El mensaje fue enviado por el usuario con nombre de usuario: {username}")
     print(f"User ID: {message.from_user.id}, Admin ID: {os.getenv('ADMIN_ID')}")  # Depuración para verificar IDs
     if message.from_user.id == os.getenv('ADMIN_ID'):

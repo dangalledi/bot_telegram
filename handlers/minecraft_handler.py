@@ -3,7 +3,7 @@
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from utils import llamadaSistema
 from oled_display import actualizar_pantalla
-from logger import log_action 
+from logger import setup_logging 
 
 def minecraft(bot, call):
     print('minecraft')
@@ -12,13 +12,13 @@ def minecraft(bot, call):
         status_output = llamadaSistema("docker ps -f name=mc-server --format '{{.Status}}'")
         message = ("¿Qué deseas hacer? /logs\n\n"
                    f"el estado del contenedor {container_name} es: {(status_output,'esta apagado')[status_output=='']}")
-        log_action(call.from_user.username, '/minecraft')
+        setup_logging(call.from_user.username, '/minecraft')
         actualizar_pantalla("Minecraft: " + ("Encendido" if status_output else "Apagado"))
     except Exception as e:
         # Manejar cualquier error
         message = ("¿Qué deseas hacer?\n\n"
                    f"error al obtener el estado del contenedor: {str(e)}")
-        log_action(call.from_user.username, f'/minecraft - Error: {str(e)}')
+        setup_logging(call.from_user.username, f'/minecraft - Error: {str(e)}')
         actualizar_pantalla("Error Minecraft")
     finally:
         bot.send_message(call.chat.id, message, reply_markup=gen_markup_mc())
@@ -53,4 +53,4 @@ def handle_docker_commands(bot, call):
     else:
         mensaje_accion = "Comando desconocido"
     bot.send_message(call.from_user.id, mensaje_accion)
-    log_action(call.from_user.username, f'/minecraft - {respuesta}')
+    setup_logging(call.from_user.username, f'/minecraft - {respuesta}')
