@@ -11,7 +11,7 @@ from handlers.admin_handler import admin
 from handlers.basic_commands import start, ping, fecha, comandos
 from handlers.system_commands import status, ip
 from handlers.minecraft_handler import minecraft, handle_minecraft_callback, mc_players_online, mc_last_activity
-from handlers.transmission_handler import register_transmission_handlers
+from handlers.transmission_handler import register_transmission_handlers, get_oled_torrent_status
 from logger import setup_logging
 
 setup_logging()
@@ -184,8 +184,32 @@ def _get_display_payload():
             "line2": f"RAM {m}",
             "line3": "",
         }
+    
+    if page == 2:
+        tr = get_oled_torrent_status(cache_seconds=5)
+        if tr:
+            name = tr["name"]
+            short = (name[:16] + "…") if len(name) > 17 else name
+            dl_kb = tr["dl"] // 1024
+            ul_kb = tr["ul"] // 1024
 
-    # page == 2
+            return {
+                "title": f"Torrents ({tr['count']})",
+                "right": time.strftime("%H:%M"),
+                "line1": short,
+                "line2": f"{tr['progress']}% DL {dl_kb}KB/s",
+                "line3": f"UL {ul_kb}KB/s",
+            }
+
+        return {
+            "title": "Torrents",
+            "right": time.strftime("%H:%M"),
+            "line1": "Sin descargas",
+            "line2": "Usa /torrents",
+            "line3": "",
+        }
+
+    # page == 3
     return {
         "title": "Torrents/Minecraft",
         "right": time.strftime("%H:%M"),

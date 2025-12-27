@@ -1,10 +1,14 @@
 # handlers/transmission_handler.py
 import os
 import logging
-from typing import Optional, Callable, Tuple, List
+from typing import Optional, Callable, Tuple, List, Dict, Any
 
 import transmission_rpc
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
+
+import time
+_last_oled = None
+_last_oled_ts = 0.0
 
 from logger import log_action
 
@@ -350,3 +354,72 @@ def register_transmission_handlers(bot, on_activity: Optional[Callable[[str], No
             reply_markup=markup,
         )
 
+
+def get_oled_torrent_status(cache_seconds: int = 5) -> Optional[dict]:
+    """
+    Devuelve un resumen pequeño para OLED.
+    - Usa cache para no consultar Transmission en cada refresh.
+    - Retorna None si no hay actividad o Transmission no está disponible.
+    """
+    global _last_oled, _last_oled_ts
+
+    now = time.time()
+
+    # 1) Si tenemos cache reciente, devolverlo
+    if (now - _last_oled_ts) < cache_seconds:
+        return _last_oled
+
+    # 2) Si no hay cache reciente, consultamos Transmission
+    try:
+        tc = _get_client()
+        torrents = tc.get_torrents()
+        if not torrents:
+            _last_oled = None
+            _last_oled_ts = now
+            return None
+
+        # "activos": descargando o subiendo
+        active = [t for t in torrents if getattr(t, "status", "") in ("downloading", "seeding")]
+        if not active:
+            _last_oled = None
+            _last_oled_ts = now
+            return None
+
+        # elegir el "principal" para mostrar (prioriza downloading)
+        active.sort(
+            key=lambda t: (
+                0 if getattr(t, "status", "") == "downloading" else 1,
+                -float(getattr(t, "progress", 0) or 0),
+            )
+        )
+        t = active[0]
+
+        name = getattr(t, "name", "torrent")
+
+        progress = getattr(t, "progress", None)
+        if progress is None:
+            pd = getattr(t, "percent_done", None)
+            progress = int(pd * 100) if isinstance(pd, (int, float)) else 0
+
+        rate_dl = int(getattr(t, "rateDownload", 0) or 0)
+        rate_ul = int(getattr(t, "rateUpload", 0) or 0)
+
+        result = {
+            "count": len(active),
+            "name": name,
+            "progress": int(progress),
+            "dl": rate_dl,
+            "ul": rate_ul,
+            "status": getattr(t, "status", ""),
+        }
+
+        # 3) Guardar cache
+        _last_oled = result
+        _last_oled_ts = now
+        return result
+
+    except Exception:
+        # si falla, cacheamos "None" para no spamear errores cada 2s
+        _last_oled = None
+        _last_oled_ts = now
+        return None
