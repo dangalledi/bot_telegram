@@ -10,7 +10,7 @@ from oled_display import render_status, start_auto_update
 from handlers.admin_handler import admin
 from handlers.basic_commands import start, ping, fecha, comandos
 from handlers.system_commands import status, ip
-from handlers.minecraft_handler import minecraft, handle_minecraft_callback, mc_players_online, mc_last_activity
+from handlers.minecraft_handler import minecraft, handle_minecraft_callback, mc_players_online, mc_last_activity, _mc_players_cached, _mc_state_cached
 from handlers.transmission_handler import register_transmission_handlers, get_oled_torrent_status
 from logger import setup_logging
 
@@ -33,6 +33,32 @@ def note_display(text: str):
         display_state["last_ts"] = time.time()
         
 register_transmission_handlers(bot, on_activity=note_display)
+
+ALERT_TEMP_C = float(os.getenv("ALERT_TEMP_C", "70"))
+ALERT_RAM_PCT = int(os.getenv("ALERT_RAM_PCT", "85"))
+ALERT_COOLDOWN_S = int(os.getenv("ALERT_COOLDOWN_S", "1800"))  # 30 min
+
+_last_alert_sent = 0.0
+_last_alert_key = ""
+
+def _bar(pct: int, width: int = 10) -> str:
+    pct = max(0, min(100, pct))
+    filled = int(pct * width / 100)
+    return "█" * filled + "░" * (width - filled)
+
+def _maybe_notify_admin(alert_key: str, text: str):
+    global _last_alert_sent, _last_alert_key
+    if not ADMIN_ID:
+        return
+    now = time.time()
+    if alert_key == _last_alert_key and (now - _last_alert_sent) < ALERT_COOLDOWN_S:
+        return
+    _last_alert_key = alert_key
+    _last_alert_sent = now
+    try:
+        bot.send_message(ADMIN_ID, text, disable_notification=True)
+    except Exception:
+        pass
 
 @bot.message_handler(commands=['apagar'])
 def handle_apagar(message):
@@ -150,8 +176,42 @@ def _get_display_payload():
         last_text = display_state["last_text"]
         last_ts = display_state["last_ts"]
 
-    # 1) Si hubo actividad en los últimos 30s, muéstrala
-    if now - last_ts < 30 and last_text:
+    # Lecturas sistema
+    temp = _read_temp_c()
+    mem = _read_mem_percent()
+
+    temp_alert = (temp is not None and temp >= ALERT_TEMP_C)
+    mem_alert = (mem is not None and mem >= ALERT_RAM_PCT)
+
+    # Estado torrents + MC
+    tr = get_oled_torrent_status(cache_seconds=5)  # None si no hay actividad
+    mc_state, mc_status = _mc_state_cached(cache_seconds=5)
+
+    # 1) ALERTAS: prioridad máxima
+    if temp_alert or mem_alert:
+        parts = []
+        if temp_alert:
+            parts.append(f"TEMP {temp:.1f}C")
+        if mem_alert:
+            parts.append(f"RAM {mem}%")
+        key = " & ".join(parts)
+
+        # OLED
+        payload = {
+            "title": "⚠ ALERTA",
+            "right": time.strftime("%H:%M"),
+            "line1": parts[0] if parts else "ALERTA",
+            "line2": parts[1] if len(parts) > 1 else "",
+            "line3": f"IP {obtener_ip()}",
+        }
+
+        # Telegram (opcional, con cooldown)
+        _maybe_notify_admin(key, f"⚠️ PatanaBot alerta: {key}")
+
+        return payload
+
+    # 2) Actividad reciente del bot: se muestra un ratito
+    if now - last_ts < 20 and last_text:
         return {
             "title": "PatanaBot",
             "right": time.strftime("%H:%M"),
@@ -160,63 +220,72 @@ def _get_display_payload():
             "line3": last_text[:20],
         }
 
-    # 2) Si no, rota pantallas cada 6s
-    page = int(now / 6) % 3
+    # 3) Construir lista de pantallas (con prioridad)
+    screens = []
 
-    if page == 0:
-        return {
-            "title": "PatanaBot",
+    # 3a) Minecraft arrancando: MUY prioritario
+    if mc_state == "starting":
+        screens.append({
+            "title": "Minecraft",
             "right": time.strftime("%H:%M"),
-            "line1": "Modo idle",
-            "line2": f"IP {obtener_ip()}",
-            "line3": "",
-        }
+            "line1": "Arrancando...",
+            "line2": "Espera ~15-60s",
+            "line3": "Puerto 25565",
+        })
 
-    if page == 1:
-        temp = _read_temp_c()
-        mem = _read_mem_percent()
-        t = f"{temp:.1f}C" if temp is not None else "N/A"
-        m = f"{mem}%" if mem is not None else "N/A"
-        return {
-            "title": "Sistema",
+    # 3b) Torrents activos: prioridad alta (y los repetimos para que salga más)
+    if tr:
+        name = tr["name"]
+        short = (name[:16] + "…") if len(name) > 17 else name
+        dl_kb = tr["dl"] // 1024
+        ul_kb = tr["ul"] // 1024
+        bar = _bar(tr["progress"], 10)
+
+        torrent_screen = {
+            "title": f"Torrents ({tr['count']})",
             "right": time.strftime("%H:%M"),
-            "line1": f"TEMP {t}",
-            "line2": f"RAM {m}",
-            "line3": "",
+            "line1": short,
+            "line2": f"{bar} {tr['progress']}%",
+            "line3": f"DL {dl_kb} UL {ul_kb} KB/s",
         }
-    
-    if page == 2:
-        tr = get_oled_torrent_status(cache_seconds=5)
-        if tr:
-            name = tr["name"]
-            short = (name[:16] + "…") if len(name) > 17 else name
-            dl_kb = tr["dl"] // 1024
-            ul_kb = tr["ul"] // 1024
+        screens.append(torrent_screen)
+        screens.append(torrent_screen)  # <- “peso” extra: aparece el doble
 
-            return {
-                "title": f"Torrents ({tr['count']})",
-                "right": time.strftime("%H:%M"),
-                "line1": short,
-                "line2": f"{tr['progress']}% DL {dl_kb}KB/s",
-                "line3": f"UL {ul_kb}KB/s",
-            }
-
-        return {
-            "title": "Torrents",
+    # 3c) Minecraft ON: mostrar players (cacheado)
+    if mc_state == "on":
+        count, names = _mc_players_cached(cache_seconds=10)
+        who = (names[0][:16] + "…") if names else "nadie"
+        screens.append({
+            "title": "Minecraft",
             "right": time.strftime("%H:%M"),
-            "line1": "Sin descargas",
-            "line2": "Usa /torrents",
-            "line3": "",
-        }
+            "line1": "Online ✅",
+            "line2": f"Jugadores: {count}",
+            "line3": f"Top: {who}" if count else "Sin jugadores",
+        })
 
-    # page == 3
-    return {
-        "title": "Torrents/Minecraft",
+    # 3d) Pantalla sistema siempre
+    t = f"{temp:.1f}C" if temp is not None else "N/A"
+    m = f"{mem}%" if mem is not None else "N/A"
+    screens.append({
+        "title": "Sistema",
         "right": time.strftime("%H:%M"),
-        "line1": "Listo",
-        "line2": "Usa /torrents",
-        "line3": "o /mc",
-    }
+        "line1": f"IP {obtener_ip()}",
+        "line2": f"TEMP {t}",
+        "line3": f"RAM {m}",
+    })
+
+    # 3e) Pantalla tips siempre
+    screens.append({
+        "title": "Atajos",
+        "right": time.strftime("%H:%M"),
+        "line1": "/mc  /torrents",
+        "line2": "/status  /ip",
+        "line3": "",
+    })
+
+    # 4) Rotación (cada 6s)
+    idx = int(now / 6) % len(screens)
+    return screens[idx]
 
 if __name__ == "__main__":
     # Mensaje solo al arrancar (si reinicia el servicio, lo mandará de nuevo)

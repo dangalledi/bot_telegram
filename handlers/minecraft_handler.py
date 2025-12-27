@@ -2,12 +2,15 @@
 import os
 import time
 import logging
+from typing import Optional, Tuple
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 import re
 
 from utils import llamadaSistema
 from logger import log_action
 
+_MC_CACHE = {"ts": 0.0, "state": "off", "status": ""}
+_MC_PLAYERS_CACHE = {"ts": 0.0, "count": 0, "names": []}
 
 def _user(obj):
     u = getattr(obj, "from_user", None)
@@ -185,3 +188,44 @@ def mc_last_activity():
             return line
 
     return lines[-1]
+
+def _mc_state_cached(cache_seconds: int = 5) -> Tuple[str, str]:
+    """
+    state: off | starting | on
+    status: texto (docker ps status)
+    """
+    now = time.time()
+    if now - _MC_CACHE["ts"] < cache_seconds:
+        return _MC_CACHE["state"], _MC_CACHE["status"]
+
+    name = os.getenv("MC_CONTAINER", "minecraft").strip()
+    status = llamadaSistema(f"docker ps -a --filter name={name} --format '{{{{.Status}}}}'").strip()
+
+    if not status:
+        state = "off"
+    else:
+        s = status.lower()
+        if s.startswith("up"):
+            # ejemplos: "Up 2 minutes (healthy)" / "Up 30 seconds (health: starting)"
+            if "health: starting" in s or "starting" in s and "healthy" not in s:
+                state = "starting"
+            else:
+                state = "on"
+        else:
+            state = "off"
+
+    _MC_CACHE.update({"ts": now, "state": state, "status": status})
+    return state, status
+
+def _mc_players_cached(cache_seconds: int = 10):
+    now = time.time()
+    if now - _MC_PLAYERS_CACHE["ts"] < cache_seconds:
+        return _MC_PLAYERS_CACHE["count"], _MC_PLAYERS_CACHE["names"]
+    try:
+        text, count, names = mc_players_online()  # tu función (usa rcon-cli)
+        _MC_PLAYERS_CACHE.update({"ts": now, "count": count, "names": names})
+        return count, names
+    except Exception:
+        _MC_PLAYERS_CACHE.update({"ts": now, "count": 0, "names": []})
+        return 0, []
+
