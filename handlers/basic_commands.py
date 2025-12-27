@@ -2,7 +2,14 @@
 
 from oled_display import actualizar_pantalla
 from utils import obtener_ip, llamadaSistema
-from logger import setup_logging
+import logging
+from logger import log_action
+
+def log_action(user, action):
+    logging.info("User=%s Action=%s", user, action)
+    
+def _user(message):
+    return message.from_user.username or str(message.from_user.id)
 
 def start(bot, message):
     mensaje = """
@@ -32,21 +39,21 @@ def start(bot, message):
     
     """
     bot.reply_to(message, mensaje)  # Respondemos al comando con el mensaje
-    print('start')
-    setup_logging(message.from_user.username, '/start')
+    logging.info("start")
+    log_action(_user(message), "/start")
     actualizar_pantalla("Bot iniciado")
 
 def ping(bot, message):
     bot.reply_to(message, "Still alive and kicking!")
-    print('ping')
-    setup_logging(message.from_user.username, '/ping')
+    logging.info("ping")
+    log_action(_user(message), "/ping")
     actualizar_pantalla("Ping recibido")
 
 def fecha(bot, message):
     fecha = llamadaSistema("date")  # Llamada al sistema
     bot.reply_to(message, fecha)  # Respondemos al comando con el mensaje
-    print('fecha')
-    setup_logging(message.from_user.username, '/fecha')
+    logging.info("fecha")
+    log_action(_user(message), "/fecha")
     actualizar_pantalla("Fecha mostrada")
     
 def comandos(bot, message):
@@ -59,7 +66,7 @@ def comandos(bot, message):
                     # "/pwd\n/cd\n/ls\n/documento\n\n"
                     "/minecraft")
     bot.reply_to(message, respuuesta) # Respondemos al comando con el mensaje
-    print('comandos')
-    setup_logging(message.from_user.username, '/comandos')
+    logging.info("comandos")
+    log_action(_user(message), "/comandos")
     actualizar_pantalla("comandos")
 

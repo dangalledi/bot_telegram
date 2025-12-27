@@ -6,11 +6,11 @@ import threading
 import logging
 import telebot
 from utils import llamadaSistema, obtener_ip
-from oled_display import actualizar_pantalla
+from oled_display import render_status, start_auto_update
 from handlers.admin_handler import admin
 from handlers.basic_commands import start, ping, fecha, comandos
 from handlers.system_commands import status, ip
-from handlers.minecraft_handler import minecraft, handle_docker_commands
+from handlers.minecraft_handler import minecraft, handle_minecraft_callback, mc_players_online, mc_last_activity
 from handlers.transmission_handler import agregar_torrent, estado_descargas, eliminar_torrent, listar_torrents
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from logger import setup_logging
@@ -34,77 +34,68 @@ def handle_apagar(message):
     else:
         bot.reply_to(message, "No tienes permiso para apagar el sistema.")
 
-# Función para resetear el temporizador de inactividad de la pantalla
-def reset_pantalla_timer():
-    global pantalla_timer
-    if pantalla_timer is not None:
-        pantalla_timer.cancel()
-    pantalla_timer = threading.Timer(60.0, mostrar_ip_pantalla)
-    pantalla_timer.start()
+display_state = {
+    "last_text": "",
+    "last_ts": 0.0,
+}
+_state_lock = threading.Lock()
 
-# Función para mostrar la IP en la pantalla
-def mostrar_ip_pantalla():
-    actualizar_pantalla(f"IP: {obtener_ip()}")
-
+def note_display(text: str):
+    with _state_lock:
+        display_state["last_text"] = text
+        display_state["last_ts"] = time.time()
+    
 # Registrar los manejadores de comandos
 @bot.message_handler(commands=['start', 'inicio'])
 def handle_start(message):
     start(bot, message)
-    reset_pantalla_timer()
+    note_display(f"/start @{message.from_user.username or message.from_user.id}")
 
 @bot.message_handler(commands=['admin'])
 def handle_admin(message):
     admin(bot, message)
-    reset_pantalla_timer()
 
 @bot.message_handler(commands=['ping'])
 def handle_ping(message):
     ping(bot, message)
-    reset_pantalla_timer()
+    note_display(f"/ping @{message.from_user.username or message.from_user.id}")
     
 @bot.message_handler(commands=['comandos'])
 def handler_comandos(message):
     comandos(bot, message)
-    reset_pantalla_timer()
 
 @bot.message_handler(commands=['fecha'])
 def handle_fecha(message):
     fecha(bot, message)
-    reset_pantalla_timer()
 
 @bot.message_handler(commands=['status'])
 def handle_status(message):
     status(bot, message)
-    reset_pantalla_timer()
 
 @bot.message_handler(commands=['ip'])
 def handle_ip(message):
     ip(bot, message)
-    reset_pantalla_timer()
 
 @bot.message_handler(commands=['minecraft', 'mc'])
 def handle_minecraft(message):
     minecraft(bot, message)
-    reset_pantalla_timer()
 
-@bot.callback_query_handler(func=lambda call: call.data in ["stop", "start", "detalle"])
-def handle_docker_commands(call):
-    print(f"Comando de Docker recibido: {call.data}")
-    logging.info("Comando del sistema recibido: %s", call.data)
-    
-    if call.data == "stop":
-        bot.send_message(call.message.chat.id, "Deteniendo el servidor de Docker...")
-        # Agrega tu lógica para detener el servidor de Docker
-    
-    elif call.data == "start":
-        bot.send_message(call.message.chat.id, "Iniciando el servidor de Docker...")
-        # Agrega tu lógica para iniciar el servidor de Docker
-    
-    elif call.data == "detalle":
-        bot.send_message(call.message.chat.id, "Mostrando detalles del servidor de Docker...")
-        # Agrega tu lógica para mostrar los detalles
-    
-    reset_pantalla_timer()
+@bot.callback_query_handler(func=lambda call: call.data.startswith("mc:"))
+def on_mc_callback(call):
+    handle_minecraft_callback(bot, call)
+
+@bot.message_handler(commands=['mc_online', 'online'])
+def handle_mc_online(message):
+    text, count, names = mc_players_online()
+    if count == 0:
+        bot.reply_to(message, "No hay jugadores conectados الآن.\n" + text)
+    else:
+        bot.reply_to(message, f"Jugadores conectados ({count}):\n- " + "\n- ".join(names))
+        
+@bot.message_handler(commands=['mc_last', 'last'])
+def handle_mc_last(message):
+    last = mc_last_activity()
+    bot.reply_to(message, f"Última actividad:\n{last}")
 
 @bot.callback_query_handler(func=lambda call: call.data in ["ip", "status", "pwd", "ls"])
 def handle_system_commands(call):
@@ -131,8 +122,6 @@ def handle_system_commands(call):
         files = llamadaSistema("ls")
         bot.send_message(call.message.chat.id, f"Archivos:\n{files}")
     
-    reset_pantalla_timer()  # Para manejar la pantalla
- 
 # Función para mostrar el menú principal de torrents
 def mostrar_menu_torrents(message):
     markup = InlineKeyboardMarkup(row_width=2)
@@ -171,15 +160,15 @@ def handle_torrent_callback(call):
 # Función para manejar el agregar torrent después de recibir el enlace
 def agregar_torrent_step(message):
     print(f"Mensaje recibido en agregar_torrent_step: {message.text}")  # Depuración
-    logging.info("Comando del sistema recibido: %s", call.data)
     url = message.text  # Obtener el URL enviado por el usuario
+    logging.info("Torrent recibido: %s (user=%s)", url, message.from_user.username or message.from_user.id)
     respuesta = agregar_torrent(url)
     bot.send_message(message.chat.id, respuesta)
 
 # Función para manejar la eliminación de torrent después de recibir el ID
 def eliminar_torrent_step(message):
     print(f"Mensaje recibido en eliminar_torrent_step: {message.text}")  # Depuración
-    logging.info("Comando del sistema recibido: %s", call.data)
+    logging.info("Solicitud eliminar torrent: %s (user=%s)", message.text, message.from_user.username or message.from_user.id)
     try:
         torrent_id = int(message.text)  # Obtener el ID enviado por el usuario
         respuesta = eliminar_torrent(torrent_id)
@@ -187,10 +176,80 @@ def eliminar_torrent_step(message):
     except ValueError:
         bot.send_message(message.chat.id, "El ID del torrent debe ser un número.")
 
+def _read_temp_c():
+    try:
+        with open("/sys/class/thermal/thermal_zone0/temp", "r") as f:
+            return float(f.read().strip()) / 1000.0
+    except Exception:
+        return None
 
-# Mantener la dirección IP en la pantalla hasta que haya interacción con el bot
-pantalla_timer = None
-reset_pantalla_timer()
+def _read_mem_percent():
+    try:
+        meminfo = {}
+        with open("/proc/meminfo", "r") as f:
+            for line in f:
+                k, v = line.split(":")
+                meminfo[k] = int(v.strip().split()[0])
+        total = meminfo.get("MemTotal", 0)
+        avail = meminfo.get("MemAvailable", 0)
+        if total:
+            used = total - avail
+            return int(used * 100 / total)
+    except Exception:
+        pass
+    return None
+
+def _get_display_payload():
+    now = time.time()
+
+    with _state_lock:
+        last_text = display_state["last_text"]
+        last_ts = display_state["last_ts"]
+
+    # 1) Si hubo actividad en los últimos 30s, muéstrala
+    if now - last_ts < 30 and last_text:
+        return {
+            "title": "PatanaBot",
+            "right": time.strftime("%H:%M"),
+            "line1": f"IP {obtener_ip()}",
+            "line2": "Último comando:",
+            "line3": last_text[:20],
+        }
+
+    # 2) Si no, rota pantallas cada 6s
+    page = int(now / 6) % 3
+
+    if page == 0:
+        return {
+            "title": "PatanaBot",
+            "right": time.strftime("%H:%M"),
+            "line1": "Modo idle",
+            "line2": f"IP {obtener_ip()}",
+            "line3": "",
+        }
+
+    if page == 1:
+        temp = _read_temp_c()
+        mem = _read_mem_percent()
+        t = f"{temp:.1f}C" if temp is not None else "N/A"
+        m = f"{mem}%" if mem is not None else "N/A"
+        return {
+            "title": "Sistema",
+            "right": time.strftime("%H:%M"),
+            "line1": f"TEMP {t}",
+            "line2": f"RAM {m}",
+            "line3": "",
+        }
+
+    # page == 2
+    return {
+        "title": "Torrents/Minecraft",
+        "right": time.strftime("%H:%M"),
+        "line1": "Listo",
+        "line2": "Usa /torrents",
+        "line3": "o /mc",
+    }
+
 
 if __name__ == "__main__":
     # Mensaje solo al arrancar (si reinicia el servicio, lo mandará de nuevo)
@@ -205,5 +264,6 @@ if __name__ == "__main__":
     except Exception:
         pass
 
+    start_auto_update(_get_display_payload, interval=2)
     # Infinity polling = bucle interno con reconexión
     bot.infinity_polling(timeout=20, long_polling_timeout=20, skip_pending=True)

@@ -45,3 +45,9 @@ def setup_logging(
     logger.addHandler(stream_handler)
 
     return logger
+
+def log_action(user, action, extra: str = ""):
+    """
+    Log de acciones del bot.
+    """
+    logging.info("action user=%s cmd=%s %s", user, action, extra)
