@@ -37,5 +37,5 @@ Incluye comandos básicos, comandos de sistema, control de Minecraft (Docker) y 
 
 ### 1) Clonar repositorio
 ```bash
-git clone https://github.com/tu-usuario/bot_telegram.git
+git clone https://github.com/dangalledi/bot_telegram.git
 cd bot_telegram
