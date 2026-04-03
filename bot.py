@@ -12,12 +12,15 @@ from handlers.basic_commands import start, ping, fecha, comandos
 from handlers.system_commands import status, ip
 from handlers.minecraft_handler import minecraft, handle_minecraft_callback, mc_players_online, mc_last_activity, _mc_players_cached, _mc_state_cached
 from handlers.transmission_handler import register_transmission_handlers, get_oled_torrent_status
+from handlers.services_handler import services
 from logger import setup_logging
 
 setup_logging()
 
 TOKEN = os.getenv("TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
+RAW_ADMIN_IDS = os.getenv("ADMIN_IDS", "0")  # Cambiamos el nombre a plural
+ADMIN_IDS = [int(i.strip()) for i in RAW_ADMIN_IDS.split(",") if i.strip()]
+ADMIN_ID = ADMIN_IDS[0] if ADMIN_IDS else 0
 
 if not TOKEN:
     raise RuntimeError("Falta TOKEN en variables de entorno (archivo .env o export).")
@@ -48,22 +51,24 @@ def _bar(pct: int, width: int = 10) -> str:
 
 def _maybe_notify_admin(alert_key: str, text: str):
     global _last_alert_sent, _last_alert_key
-    if not ADMIN_ID:
+    if not ADMIN_IDS:
         return
     now = time.time()
     if alert_key == _last_alert_key and (now - _last_alert_sent) < ALERT_COOLDOWN_S:
         return
     _last_alert_key = alert_key
     _last_alert_sent = now
-    try:
-        bot.send_message(ADMIN_ID, text, disable_notification=True)
-    except Exception:
-        pass
+    
+    for admin_id in ADMIN_IDS: # Enviar a todos los admins
+        try:
+            bot.send_message(admin_id, text, disable_notification=True)
+        except Exception:
+            pass
 
 @bot.message_handler(commands=['apagar'])
 def handle_apagar(message):
     # Solo el administrador puede apagar el sistema
-    if message.from_user.id == ADMIN_ID:
+    if message.from_user.id in ADMIN_IDS:
         bot.reply_to(message, "Apagando la Raspberry Pi...")
         os.system("sudo shutdown now")
     else:
@@ -99,6 +104,14 @@ def handle_status(message):
 @bot.message_handler(commands=['ip'])
 def handle_ip(message):
     ip(bot, message)
+    
+@bot.message_handler(commands=['plex'])
+def handle_plex(message):
+    services(bot, message, ADMIN_IDS)
+
+@bot.message_handler(commands=['zerotier'])
+def handle_zerotier(message):
+    services(bot, message, ADMIN_IDS)
 
 @bot.message_handler(commands=['minecraft', 'mc'])
 def handle_minecraft(message):
