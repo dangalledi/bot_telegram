@@ -2,20 +2,18 @@
 
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 from oled_display import actualizar_pantalla
-from logger import setup_logging
-import os
+from logger import log_action
+import logging
 
-def admin(bot, message):
-    username = message.from_user.username
-    setup_logging(username, '/admin')  # Registrar la acción
-    print(f"admin -> El mensaje fue enviado por el usuario con nombre de usuario: {username}")
-    print(f"User ID: {message.from_user.id}, Admin ID: {os.getenv('ADMIN_ID')}")  # Depuración para verificar IDs
-    if message.from_user.id == os.getenv('ADMIN_ID'):
+def admin(bot, message, ADMIN_IDS):
+    username = message.from_user.username or str(message.from_user.id)
+    if message.from_user.id in ADMIN_IDS:
+        log_action(username, "/admin", "acceso OK")
         bot.send_message(message.chat.id, "Elige un comando para ejecutar:", reply_markup=gen_markup_admin())
         actualizar_pantalla("Acceso admin")
     else:
-        mensaje = (f"Oye {username} tu no eres admin ! ¬¬")
-        bot.reply_to(message, mensaje)
+        logging.warning("action user=%s cmd=/admin DENIED (not admin)", username)
+        bot.reply_to(message, f"Oye {username}, tú no eres admin! ¬¬")
         actualizar_pantalla("Acceso denegado")
 
 def gen_markup_admin():

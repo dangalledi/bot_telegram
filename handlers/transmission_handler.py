@@ -1,7 +1,7 @@
 # handlers/transmission_handler.py
 import os
 import logging
-from typing import Optional, Callable, Tuple, List, Dict, Any
+from typing import Optional, Callable
 
 import transmission_rpc
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
@@ -53,10 +53,10 @@ def _get_client() -> transmission_rpc.Client:
 def _menu_markup() -> InlineKeyboardMarkup:
     markup = InlineKeyboardMarkup(row_width=2)
     markup.add(
-        InlineKeyboardButton("➕ Agregar", callback_data="tr:add"),
-        InlineKeyboardButton("📊 Estado", callback_data="tr:status"),
-        InlineKeyboardButton("📋 Listar", callback_data="tr:list:0"),
-        InlineKeyboardButton("🗑️ Eliminar", callback_data="tr:delete"),
+        InlineKeyboardButton("Agregar", callback_data="tr:add"),
+        InlineKeyboardButton("Estado", callback_data="tr:status"),
+        InlineKeyboardButton("Listar", callback_data="tr:list:0"),
+        InlineKeyboardButton("Eliminar", callback_data="tr:delete"),
     )
     return markup
 
@@ -89,7 +89,6 @@ def _fmt_torrent_line(t) -> str:
         pd = getattr(t, "percent_done", None)
         progress = int(pd * 100) if isinstance(pd, (int, float)) else 0
 
-    status = getattr(t, "status", "")
     eta = getattr(t, "eta", None)  # puede ser int (segundos) o str
     rate_dl = getattr(t, "rateDownload", None)
     rate_ul = getattr(t, "rateUpload", None)
@@ -133,7 +132,7 @@ def register_transmission_handlers(bot, on_activity: Optional[Callable[[str], No
             bot.reply_to(message, "No tienes permiso para usar torrents.")
             return
         activity(message, "/torrents")
-        _safe_send(bot, message.chat.id, "📦 Torrents: elige una opción", reply_markup=_menu_markup())
+        _safe_send(bot, message.chat.id, "Torrents: elige una opcion", reply_markup=_menu_markup())
 
     @bot.callback_query_handler(func=lambda c: isinstance(c.data, str) and c.data.startswith("tr:"))
     def _cb_transmission(call):
@@ -232,12 +231,12 @@ def register_transmission_handlers(bot, on_activity: Optional[Callable[[str], No
         try:
             tc = _get_client()
             t = tc.add_torrent(url)
-            bot.reply_to(message, f"✅ Torrent agregado: {t.name}")
+            bot.reply_to(message, f"Torrent agregado: {t.name}")
         except Exception as e:
             logging.exception("Error add_torrent")
-            bot.reply_to(message, f"❌ Error al agregar torrent: {e}")
+            bot.reply_to(message, f"Error al agregar torrent: {e}")
 
-        _safe_send(bot, message.chat.id, "📦 Menú torrents:", reply_markup=_menu_markup())
+        _safe_send(bot, message.chat.id, "Menu torrents:", reply_markup=_menu_markup())
 
     def _handle_status(chat_id: int):
         try:
@@ -251,14 +250,14 @@ def register_transmission_handlers(bot, on_activity: Optional[Callable[[str], No
             total = getattr(stats, "torrentCount", None)
 
             msg = (
-                "📊 Transmission\n"
+                "Transmission\n"
                 f"- Torrents: {total} (activos {active}, pausados {paused})\n"
                 f"- Velocidad: DL {_fmt_rate(down)} | UL {_fmt_rate(up)}\n"
             )
             _safe_send(bot, chat_id, msg, reply_markup=_menu_markup())
         except Exception as e:
             logging.exception("Error status")
-            _safe_send(bot, chat_id, f"❌ Error al obtener estado: {e}", reply_markup=_menu_markup())
+            _safe_send(bot, chat_id, f"Error al obtener estado: {e}", reply_markup=_menu_markup())
 
     def _handle_list(chat_id: int, page: int = 0, page_size: int = 10):
         try:
@@ -272,14 +271,14 @@ def register_transmission_handlers(bot, on_activity: Optional[Callable[[str], No
             end = min(len(torrents), start + page_size)
             chunk = torrents[start:end]
 
-            lines = ["📋 Lista de torrents (ID | % | DL/UL | ETA | nombre)"]
+            lines = ["Lista de torrents (ID | % | DL/UL | ETA | nombre)"]
             for t in chunk:
                 lines.append(_fmt_torrent_line(t))
 
             nav = InlineKeyboardMarkup(row_width=3)
-            prev_btn = InlineKeyboardButton("⬅️", callback_data=f"tr:list:{max(0, page-1)}")
-            next_btn = InlineKeyboardButton("➡️", callback_data=f"tr:list:{page+1}")
-            menu_btn = InlineKeyboardButton("🏠 Menú", callback_data="tr:status")
+            prev_btn = InlineKeyboardButton("<< Anterior", callback_data=f"tr:list:{max(0, page-1)}")
+            next_btn = InlineKeyboardButton("Siguiente >>", callback_data=f"tr:list:{page+1}")
+            menu_btn = InlineKeyboardButton("Menu", callback_data="tr:status")
 
             # Solo mostrar next si hay más
             btns = []
@@ -293,7 +292,7 @@ def register_transmission_handlers(bot, on_activity: Optional[Callable[[str], No
             _safe_send(bot, chat_id, "\n".join(lines), reply_markup=nav)
         except Exception as e:
             logging.exception("Error list")
-            _safe_send(bot, chat_id, f"❌ Error al listar torrents: {e}", reply_markup=_menu_markup())
+            _safe_send(bot, chat_id, f"Error al listar torrents: {e}", reply_markup=_menu_markup())
 
     def _handle_delete_menu(chat_id: int):
         try:
@@ -309,48 +308,48 @@ def register_transmission_handlers(bot, on_activity: Optional[Callable[[str], No
             for t in torrents[:8]:
                 tid = getattr(t, "id", None)
                 name = getattr(t, "name", "torrent")
-                label = f"🗑️ {tid} - {(name[:35] + '…') if len(name) > 36 else name}"
+                label = f"{tid} - {(name[:35] + '...') if len(name) > 36 else name}"
                 markup.add(InlineKeyboardButton(label, callback_data=f"tr:pickdel:{tid}"))
 
             _safe_send(
                 bot,
                 chat_id,
-                "Selecciona un torrent para eliminar (si no aparece, usa 📋 Listar para ver el ID):",
+                "Selecciona un torrent para eliminar (si no aparece, usa Listar para ver el ID):",
                 reply_markup=markup,
             )
         except Exception as e:
             logging.exception("Error delete menu")
-            _safe_send(bot, chat_id, f"❌ Error mostrando menú eliminar: {e}", reply_markup=_menu_markup())
+            _safe_send(bot, chat_id, f"Error mostrando menu eliminar: {e}", reply_markup=_menu_markup())
 
     def _handle_delete_id(chat_id: int, tid: int, delete_data: bool):
         try:
             tc = _get_client()
             tc.remove_torrent(tid, delete_data=delete_data)
             if delete_data:
-                _safe_send(bot, chat_id, f"✅ Torrent {tid} eliminado + datos borrados.", reply_markup=_menu_markup())
+                _safe_send(bot, chat_id, f"Torrent {tid} eliminado + datos borrados.", reply_markup=_menu_markup())
             else:
-                _safe_send(bot, chat_id, f"✅ Torrent {tid} eliminado (archivos conservados).", reply_markup=_menu_markup())
+                _safe_send(bot, chat_id, f"Torrent {tid} eliminado (archivos conservados).", reply_markup=_menu_markup())
         except Exception as e:
             logging.exception("Error delete id")
-            _safe_send(bot, chat_id, f"❌ Error al eliminar torrent {tid}: {e}", reply_markup=_menu_markup())
+            _safe_send(bot, chat_id, f"Error al eliminar torrent {tid}: {e}", reply_markup=_menu_markup())
 
             
     def _handle_delete_confirm(chat_id: int, tid: int):
         markup = InlineKeyboardMarkup(row_width=2)
         markup.add(
-            InlineKeyboardButton("✅ Solo torrent", callback_data=f"tr:delkeep:{tid}"),
-            InlineKeyboardButton("🧨 Torrent + datos", callback_data=f"tr:deldata:{tid}"),
+            InlineKeyboardButton("Solo torrent", callback_data=f"tr:delkeep:{tid}"),
+            InlineKeyboardButton("Torrent + datos", callback_data=f"tr:deldata:{tid}"),
         )
         markup.add(
-            InlineKeyboardButton("↩️ Cancelar", callback_data="tr:delete"),
-            InlineKeyboardButton("🏠 Menú", callback_data="tr:status"),
+            InlineKeyboardButton("Cancelar", callback_data="tr:delete"),
+            InlineKeyboardButton("Menu", callback_data="tr:status"),
         )
         _safe_send(
             bot,
             chat_id,
-            f"¿Cómo quieres eliminar el torrent ID {tid}?\n\n"
-            "✅ Solo torrent: lo quita de la lista, mantiene archivos.\n"
-            "🧨 Torrent + datos: borra también lo descargado en disco.",
+            f"Como quieres eliminar el torrent ID {tid}?\n\n"
+            "Solo torrent: lo quita de la lista, mantiene archivos.\n"
+            "Torrent + datos: borra tambien lo descargado en disco.",
             reply_markup=markup,
         )
 

@@ -51,23 +51,23 @@ def services(bot, message, ADMIN_IDS):
         rc = _service_action("start", service_name)
         if rc == 0:
             log_action(_user(message), f"/{cmd}", "start OK")
-            bot.reply_to(message, f"✅ {cmd} arrancado.")
+            bot.reply_to(message, f"{cmd} arrancado.")
         else:
             log_action(_user(message), f"/{cmd}", f"start FAILED rc={rc}")
-            bot.reply_to(message, f"❌ Error al arrancar {cmd}.")
+            bot.reply_to(message, f"Error al arrancar {cmd}.")
 
     elif action == "off":
         rc = _service_action("stop", service_name)
         if rc == 0:
             log_action(_user(message), f"/{cmd}", "stop OK")
-            bot.reply_to(message, f"⛔ {cmd} parado.")
+            bot.reply_to(message, f"{cmd} parado.")
         else:
             log_action(_user(message), f"/{cmd}", f"stop FAILED rc={rc}")
-            bot.reply_to(message, f"❌ Error al parar {cmd}.")
+            bot.reply_to(message, f"Error al parar {cmd}.")
 
     else:
         # Solo status
         status = _service_status(service_name)
-        emoji = "✅" if status == "active" else "⛔"
+        estado = "activo" if status == "active" else status
         log_action(_user(message), f"/{cmd}", f"status={status}")
-        bot.reply_to(message, f"{emoji} {cmd}: {status}")
+        bot.reply_to(message, f"{cmd}: {estado}")

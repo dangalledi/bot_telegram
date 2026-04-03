@@ -6,7 +6,7 @@ import threading
 import logging
 import telebot
 from utils import llamadaSistema, obtener_ip
-from oled_display import render_status, start_auto_update
+from oled_display import start_auto_update
 from handlers.admin_handler import admin
 from handlers.basic_commands import start, ping, fecha, comandos
 from handlers.system_commands import status, ip
@@ -82,7 +82,7 @@ def handle_start(message):
 
 @bot.message_handler(commands=['admin'])
 def handle_admin(message):
-    admin(bot, message)
+    admin(bot, message, ADMIN_IDS)
 
 @bot.message_handler(commands=['ping'])
 def handle_ping(message):
@@ -198,7 +198,7 @@ def _get_display_payload():
 
     # Estado torrents + MC
     tr = get_oled_torrent_status(cache_seconds=5)  # None si no hay actividad
-    mc_state, mc_status = _mc_state_cached(cache_seconds=5)
+    mc_state, _ = _mc_state_cached(cache_seconds=5)
 
     # 1) ALERTAS: prioridad máxima
     if temp_alert or mem_alert:

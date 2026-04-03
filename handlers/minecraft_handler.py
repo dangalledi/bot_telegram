@@ -98,9 +98,9 @@ def minecraft(bot, message):
     if running:
         _, count, names = mc_players_online()
         if count > 0:
-            extra = f"\n\n👥 Online ({count}): " + ", ".join(names)
+            extra = f"\n\nOnline ({count}): " + ", ".join(names)
         else:
-            extra = "\n\n👥 Online: 0"
+            extra = "\n\nOnline: 0"
     bot.send_message(message.chat.id, f"Estado Minecraft:\n{text}{extra}", reply_markup=gen_markup_mc())
 
 def handle_minecraft_callback(bot, call):
@@ -114,24 +114,24 @@ def handle_minecraft_callback(bot, call):
 
     if action == "mc:stop":
         out = mc_stop()
-        msg = f"🛑 Stop:\n{out}"
+        msg = f"Stop:\n{out}"
     elif action == "mc:start":
         out = mc_start()
-        msg = f"▶️ Start:\n{out}"
+        msg = f"Start:\n{out}"
     elif action == "mc:detalle":
         out = mc_detail()
         # Telegram limita longitud; recortamos por seguridad
         if len(out) > 3500:
             out = out[-3500:]
-        msg = f"ℹ️ Detalle:\n{out}"
+        msg = f"Detalle:\n{out}"
     elif action == "mc:online":
         text, count, names = mc_players_online()
         if count == 0:
-            msg = f"👥 {text}"  # "Servidor apagado." o "No pude leer jugadores..."
+            msg = text
         else:
-            msg = "👥 Online:\n- " + "\n- ".join(names)
+            msg = "Online:\n- " + "\n- ".join(names)
     elif action == "mc:last":
-        msg = "🕒 Última actividad:\n" + mc_last_activity()
+        msg = "Ultima actividad:\n" + mc_last_activity()
     else:
         msg = "Comando desconocido."
 
