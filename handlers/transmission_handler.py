@@ -36,10 +36,17 @@ def _get_client() -> transmission_rpc.Client:
     """
     Lazy init: evita fallos al importar si env vars no existen,
     y permite que systemd cargue .env antes.
+    Si el cliente cacheado falla, lo descarta y reconecta.
     """
     global _client
+
     if _client is not None:
-        return _client
+        try:
+            _client.session_stats()
+            return _client
+        except Exception:
+            logging.warning("Transmission: cliente cacheado no responde, reconectando...")
+            _client = None
 
     host = os.getenv("TRANSMISSION_HOST", "localhost")
     port = int(os.getenv("TRANSMISSION_PORT", "9091"))

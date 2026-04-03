@@ -207,7 +207,7 @@ def _mc_state_cached(cache_seconds: int = 5) -> Tuple[str, str]:
         s = status.lower()
         if s.startswith("up"):
             # ejemplos: "Up 2 minutes (healthy)" / "Up 30 seconds (health: starting)"
-            if "health: starting" in s or "starting" in s and "healthy" not in s:
+            if ("health: starting" in s or "starting" in s) and "healthy" not in s:
                 state = "starting"
             else:
                 state = "on"

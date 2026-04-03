@@ -5,9 +5,6 @@ from utils import obtener_ip, llamadaSistema
 import logging
 from logger import log_action
 
-def log_action(user, action):
-    logging.info("User=%s Action=%s", user, action)
-    
 def _user(message):
     return message.from_user.username or str(message.from_user.id)
 
