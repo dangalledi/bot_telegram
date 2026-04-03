@@ -1,5 +1,6 @@
 # handlers/system_commands.py
 
+import re
 from utils import llamadaSistema, obtener_ip
 from oled_display import actualizar_pantalla
 from logger import log_action
@@ -82,14 +83,48 @@ def status(bot, message):
         bot.reply_to(message, f"Error al obtener el estado del sistema: {e}")
         actualizar_pantalla("Error en estado")
 
+_IFACE_LABELS = {
+    "eth0":        "Ethernet",
+    "wlan0":       "WiFi",
+    "tailscale0":  "Tailscale",
+    "ztXXXXXXXX":  "ZeroTier",  # patrón genérico; se sobreescribe abajo
+}
+
+def _get_labeled_ips() -> list[tuple[str, str]]:
+    """
+    Devuelve lista de (label, ip) para interfaces conocidas.
+    Usa `ip -o -4 addr` para obtener interfaz + IP.
+    """
+    raw = llamadaSistema("ip -o -4 addr")
+    result = []
+    seen = set()
+    for line in raw.splitlines():
+        # formato: "2: eth0    inet 192.168.1.10/24 ..."
+        m = re.match(r"\d+:\s+(\S+)\s+inet\s+([\d.]+)", line)
+        if not m:
+            continue
+        iface, addr = m.group(1), m.group(2)
+        if addr in seen or addr.startswith("127."):
+            continue
+        seen.add(addr)
+        # Detectar ZeroTier (interfaz tipo zt...)
+        if iface.startswith("zt"):
+            label = "ZeroTier"
+        else:
+            label = _IFACE_LABELS.get(iface, iface)
+        result.append((label, addr))
+    return result
+
+
 def ip(bot, message):
-    ips = obtener_ip().split()
-    if len(ips) == 1:
-        texto = f"*IP de la Raspberry:*\n`{ips[0]}`"
+    entries = _get_labeled_ips()
+    if not entries:
+        texto = "*IP de la Raspberry:*\nNo se encontraron interfaces activas."
     else:
-        lineas = "\n".join(f"`{ip}`" for ip in ips)
+        lineas = "\n".join(f"  {label}: `{addr}`" for label, addr in entries)
         texto = f"*IPs de la Raspberry:*\n{lineas}"
 
     bot.reply_to(message, texto, parse_mode="Markdown")
     log_action(_user(message), "/ip")
-    actualizar_pantalla(f"IP: {ips[0] if ips else '?'}")
+    first_ip = entries[0][1] if entries else "?"
+    actualizar_pantalla(f"IP: {first_ip}")
