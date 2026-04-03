@@ -12,7 +12,7 @@ from handlers.basic_commands import start, ping, fecha, comandos
 from handlers.system_commands import status, ip
 from handlers.minecraft_handler import minecraft, handle_minecraft_callback, mc_players_online, mc_last_activity, _mc_players_cached, _mc_state_cached
 from handlers.transmission_handler import register_transmission_handlers, get_oled_torrent_status
-from handlers.services_handler import services
+from handlers.services_handler import services, handle_service_callback
 from logger import setup_logging
 
 setup_logging()
@@ -67,12 +67,31 @@ def _maybe_notify_admin(alert_key: str, text: str):
 
 @bot.message_handler(commands=['apagar'])
 def handle_apagar(message):
-    # Solo el administrador puede apagar el sistema
-    if message.from_user.id in ADMIN_IDS:
-        bot.reply_to(message, "Apagando la Raspberry Pi...")
+    if message.from_user.id not in ADMIN_IDS:
+        bot.reply_to(message, "No tienes permiso para apagar el sistema.")
+        return
+    markup = telebot.types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        telebot.types.InlineKeyboardButton("Si, apagar", callback_data="apagar:confirm"),
+        telebot.types.InlineKeyboardButton("Cancelar",   callback_data="apagar:cancel"),
+    )
+    bot.reply_to(message, "Vas a apagar la Raspberry Pi. Confirmas?", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda c: c.data in ("apagar:confirm", "apagar:cancel"))
+def handle_apagar_callback(call):
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
+    if call.from_user.id not in ADMIN_IDS:
+        bot.send_message(call.message.chat.id, "No autorizado.")
+        return
+    if call.data == "apagar:confirm":
+        logging.warning("action user=%s cmd=/apagar CONFIRMED", call.from_user.username or call.from_user.id)
+        bot.send_message(call.message.chat.id, "Apagando la Raspberry Pi...")
         os.system("sudo shutdown now")
     else:
-        bot.reply_to(message, "No tienes permiso para apagar el sistema.")
+        bot.send_message(call.message.chat.id, "Apagado cancelado.")
     
 # Registrar los manejadores de comandos
 @bot.message_handler(commands=['start', 'inicio'])
@@ -120,6 +139,10 @@ def handle_minecraft(message):
 @bot.callback_query_handler(func=lambda call: call.data.startswith("mc:"))
 def on_mc_callback(call):
     handle_minecraft_callback(bot, call)
+
+@bot.callback_query_handler(func=lambda call: call.data.startswith("svc:"))
+def on_svc_callback(call):
+    handle_service_callback(bot, call, ADMIN_IDS)
 
 @bot.message_handler(commands=['mc_online', 'online'])
 def handle_mc_online(message):
