@@ -1,5 +1,6 @@
 # handlers/system_commands.py
 
+import os
 import re
 from utils import llamadaSistema, obtener_ip
 from oled_display import actualizar_pantalla
@@ -128,3 +129,31 @@ def ip(bot, message):
     log_action(_user(message), "/ip")
     first_ip = entries[0][1] if entries else "?"
     actualizar_pantalla(f"IP: {first_ip}")
+
+
+def logs(bot, message, log_path: str = "log/bot.log", n: int = 20):
+    """Muestra las últimas n líneas del log de auditoría."""
+    # Soporte para /logs 30
+    parts = (message.text or "").strip().split()
+    if len(parts) > 1:
+        try:
+            n = max(1, min(int(parts[1]), 50))
+        except ValueError:
+            pass
+
+    try:
+        if not os.path.exists(log_path):
+            bot.reply_to(message, "No se encontró el archivo de log.")
+            return
+        with open(log_path, "r", encoding="utf-8") as f:
+            lines = f.readlines()
+        chunk = lines[-n:] if len(lines) >= n else lines
+        text = "".join(chunk).strip()
+        if not text:
+            bot.reply_to(message, "El log está vacío.")
+            return
+        if len(text) > 3800:
+            text = text[-3800:]
+        bot.reply_to(message, f"Ultimas {len(chunk)} lineas:\n```\n{text}\n```", parse_mode="Markdown")
+    except Exception as e:
+        bot.reply_to(message, f"Error al leer el log: {e}")

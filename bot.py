@@ -1,6 +1,7 @@
 # bot.py
 
 import os
+import shutil
 import time
 import threading
 import logging
@@ -9,7 +10,7 @@ from utils import llamadaSistema, obtener_ip
 from oled_display import start_auto_update
 from handlers.admin_handler import admin
 from handlers.basic_commands import start, ping, fecha, comandos
-from handlers.system_commands import status, ip
+from handlers.system_commands import status, ip, logs
 from handlers.minecraft_handler import minecraft, handle_minecraft_callback, mc_players_online, mc_last_activity, _mc_players_cached, _mc_state_cached
 from handlers.transmission_handler import register_transmission_handlers, get_oled_torrent_status
 from handlers.services_handler import services, handle_service_callback
@@ -39,7 +40,27 @@ register_transmission_handlers(bot, on_activity=note_display)
 
 ALERT_TEMP_C = float(os.getenv("ALERT_TEMP_C", "70"))
 ALERT_RAM_PCT = int(os.getenv("ALERT_RAM_PCT", "85"))
+ALERT_DISK_PCT = int(os.getenv("ALERT_DISK_PCT", "90"))
 ALERT_COOLDOWN_S = int(os.getenv("ALERT_COOLDOWN_S", "1800"))  # 30 min
+
+_disk_cache: dict = {"ts": 0.0, "pct": None, "path": ""}
+
+def _read_disk_percent(cache_s: int = 60) -> tuple[int | None, str]:
+    """Devuelve (porcentaje, path) del disco más lleno entre / y /media/disco."""
+    now = time.time()
+    if now - _disk_cache["ts"] < cache_s:
+        return _disk_cache["pct"], _disk_cache["path"]
+    worst_pct, worst_path = None, "/"
+    for path in ("/", "/media/disco"):
+        try:
+            u = shutil.disk_usage(path)
+            pct = int(u.used * 100 / u.total)
+            if worst_pct is None or pct > worst_pct:
+                worst_pct, worst_path = pct, path
+        except Exception:
+            pass
+    _disk_cache.update({"ts": now, "pct": worst_pct, "path": worst_path})
+    return worst_pct, worst_path
 
 _last_alert_sent = 0.0
 _last_alert_key = ""
@@ -123,6 +144,13 @@ def handle_status(message):
 @bot.message_handler(commands=['ip'])
 def handle_ip(message):
     ip(bot, message)
+
+@bot.message_handler(commands=['logs'])
+def handle_logs(message):
+    if message.from_user.id not in ADMIN_IDS:
+        bot.reply_to(message, "Solo los admins pueden ver los logs.")
+        return
+    logs(bot, message)
     
 @bot.message_handler(commands=['plex'])
 def handle_plex(message):
@@ -215,34 +243,38 @@ def _get_display_payload():
     # Lecturas sistema
     temp = _read_temp_c()
     mem = _read_mem_percent()
+    disk, disk_path = _read_disk_percent(cache_s=60)
 
     temp_alert = (temp is not None and temp >= ALERT_TEMP_C)
-    mem_alert = (mem is not None and mem >= ALERT_RAM_PCT)
+    mem_alert  = (mem  is not None and mem  >= ALERT_RAM_PCT)
+    disk_alert = (disk is not None and disk >= ALERT_DISK_PCT)
 
     # Estado torrents + MC
     tr = get_oled_torrent_status(cache_seconds=5)  # None si no hay actividad
     mc_state, _ = _mc_state_cached(cache_seconds=5)
 
     # 1) ALERTAS: prioridad máxima
-    if temp_alert or mem_alert:
+    if temp_alert or mem_alert or disk_alert:
         parts = []
         if temp_alert:
             parts.append(f"TEMP {temp:.1f}C")
         if mem_alert:
             parts.append(f"RAM {mem}%")
+        if disk_alert:
+            parts.append(f"DISCO {disk}% ({disk_path})")
         key = " & ".join(parts)
 
         # OLED
         payload = {
-            "title": "⚠ ALERTA",
+            "title": "ALERTA",
             "right": time.strftime("%H:%M"),
             "line1": parts[0] if parts else "ALERTA",
             "line2": parts[1] if len(parts) > 1 else "",
-            "line3": f"IP {obtener_ip()}",
+            "line3": parts[2] if len(parts) > 2 else f"IP {obtener_ip()}",
         }
 
-        # Telegram (opcional, con cooldown)
-        _maybe_notify_admin(key, f"⚠️ PatanaBot alerta: {key}")
+        # Telegram con cooldown
+        _maybe_notify_admin(key, f"PatanaBot alerta:\n{chr(10).join(parts)}")
 
         return payload
 

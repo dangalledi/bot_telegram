@@ -66,7 +66,8 @@ def comandos(bot, message):
         "/torrents — Gestión de Transmission\n\n"
         "*Solo admins*\n"
         "/admin — Panel de administración\n"
-        "/apagar — Apaga la Raspberry Pi"
+        "/logs — Ultimas 20 lineas del log (acepta numero: /logs 30)\n"
+        "/apagar — Apaga la Raspberry Pi (pide confirmacion)"
     )
     bot.reply_to(message, respuuesta, parse_mode="Markdown")
     logging.info("comandos")
