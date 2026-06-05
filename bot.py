@@ -10,16 +10,17 @@ from utils import llamadaSistema, obtener_ip
 from oled_display import start_auto_update
 from handlers.admin_handler import admin
 from handlers.basic_commands import start, ping, fecha, comandos
-from handlers.system_commands import status, ip, logs
+from handlers.system_commands import status, ip, logs, backup, backup_status, run_backup_thread
 from handlers.minecraft_handler import minecraft, handle_minecraft_callback, mc_players_online, mc_last_activity, _mc_players_cached, _mc_state_cached
 from handlers.transmission_handler import register_transmission_handlers, get_oled_torrent_status
 from handlers.services_handler import services, handle_service_callback
+from handlers.ha_handler import register_ha_handlers
 from logger import setup_logging
 
 setup_logging()
 
 TOKEN = os.getenv("TOKEN")
-RAW_ADMIN_IDS = os.getenv("ADMIN_IDS", "0")  # Cambiamos el nombre a plural
+RAW_ADMIN_IDS = os.getenv("ADMIN_IDS", "0")
 ADMIN_IDS = [int(i.strip()) for i in RAW_ADMIN_IDS.split(",") if i.strip()]
 ADMIN_ID = ADMIN_IDS[0] if ADMIN_IDS else 0
 
@@ -37,6 +38,7 @@ def note_display(text: str):
         display_state["last_ts"] = time.time()
         
 register_transmission_handlers(bot, on_activity=note_display)
+register_ha_handlers(bot, ADMIN_IDS)
 
 ALERT_TEMP_C = float(os.getenv("ALERT_TEMP_C", "70"))
 ALERT_RAM_PCT = int(os.getenv("ALERT_RAM_PCT", "85"))
@@ -109,10 +111,55 @@ def handle_apagar_callback(call):
         return
     if call.data == "apagar:confirm":
         logging.warning("action user=%s cmd=/apagar CONFIRMED", call.from_user.username or call.from_user.id)
-        bot.send_message(call.message.chat.id, "Apagando la Raspberry Pi...")
+        for admin_id in ADMIN_IDS:
+            if admin_id != call.from_user.id:
+                bot.send_message(admin_id, f"⚠️ @{call.from_user.username or call.from_user.id} apagó la Raspberry Pi.")
+        bot.send_message(call.message.chat.id, "Apagando la Raspberry Pi...")  # ← también falta esto
         os.system("sudo shutdown now")
     else:
         bot.send_message(call.message.chat.id, "Apagado cancelado.")
+
+@bot.message_handler(commands=['reboot'])
+def handle_reboot(message):
+    if message.from_user.id not in ADMIN_IDS:
+        bot.reply_to(message, "No tienes permiso para reiniciar el sistema.")
+        return
+    markup = telebot.types.InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        telebot.types.InlineKeyboardButton("Sí, reiniciar", callback_data="reboot:confirm"),
+        telebot.types.InlineKeyboardButton("Cancelar",      callback_data="reboot:cancel"),
+    )
+    bot.reply_to(message, "Vas a reiniciar la Raspberry Pi. ¿Confirmas?", reply_markup=markup)
+
+@bot.callback_query_handler(func=lambda c: c.data in ("reboot:confirm", "reboot:cancel"))
+def handle_reboot_callback(call):
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
+    if call.from_user.id not in ADMIN_IDS:
+        bot.send_message(call.message.chat.id, "No autorizado.")
+        return
+    if call.data == "reboot:cancel":
+        bot.send_message(call.message.chat.id, "Reinicio cancelado.")
+        return
+    logging.warning("action user=%s cmd=/reboot CONFIRMED", call.from_user.username or call.from_user.id)
+    for admin_id in ADMIN_IDS:
+        if admin_id != call.from_user.id:
+            bot.send_message(admin_id, f"@{call.from_user.username or call.from_user.id} está reiniciando la Raspberry Pi.")
+    bot.send_message(call.message.chat.id, "Reiniciando la Raspberry Pi...")
+    os.system("sudo reboot now")
+
+
+@bot.message_handler(commands=['montar-disco'])
+def handle_montar_disco(message):
+    bot.reply_to(message,"Montando el disco ...");
+    os.system("montar")  
+
+@bot.message_handler(commands=['desmontar-disco'])
+def handle_desmontar_disco(message):
+    bot.reply_to(message,"Desmontando el disco ...");
+    os.system("desmontar")  
     
 # Registrar los manejadores de comandos
 @bot.message_handler(commands=['start', 'inicio'])
@@ -151,6 +198,32 @@ def handle_logs(message):
         bot.reply_to(message, "Solo los admins pueden ver los logs.")
         return
     logs(bot, message)
+
+@bot.message_handler(commands=['backup'])
+def handle_backup(message):
+    backup(bot, message, ADMIN_IDS)
+
+@bot.message_handler(commands=['backup_status'])
+def handle_backup_status(message):
+    backup_status(bot, message)
+
+@bot.callback_query_handler(func=lambda c: c.data in ("backup:confirm", "backup:cancel"))
+def handle_backup_callback(call):
+    try:
+        bot.answer_callback_query(call.id)
+    except Exception:
+        pass
+    if call.from_user.id not in ADMIN_IDS:
+        bot.send_message(call.message.chat.id, "No autorizado.")
+        return
+    if call.data == "backup:cancel":
+        for admin_id in ADMIN_IDS:
+            bot.send_message(admin_id, "Backup cancelado.")
+        return
+
+    for admin_id in ADMIN_IDS:
+        bot.send_message(admin_id, "Iniciando backup... te aviso cuando termine.")
+    run_backup_thread(bot, call.message.chat.id, ADMIN_IDS)
     
 @bot.message_handler(commands=['plex'])
 def handle_plex(message):
@@ -317,7 +390,7 @@ def _get_display_payload():
             "line3": f"DL {dl_kb} UL {ul_kb} KB/s",
         }
         screens.append(torrent_screen)
-        screens.append(torrent_screen)  # <- “peso” extra: aparece el doble
+        screens.append(torrent_screen) 
 
     # 3c) Minecraft ON: mostrar players (cacheado)
     if mc_state == "on":
@@ -358,8 +431,8 @@ def _get_display_payload():
 if __name__ == "__main__":
     # Mensaje solo al arrancar (si reinicia el servicio, lo mandará de nuevo)
     try:
-        if ADMIN_ID:
-            bot.send_message(ADMIN_ID, "¡Desperté!", disable_notification=True)
+        for admin_id in ADMIN_IDS:
+            bot.send_message(admin_id, "¡Desperté!", disable_notification=True)
     except Exception as e:
         logging.exception("No pude enviar mensaje de arranque: %s", e)
 

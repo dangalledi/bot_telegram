@@ -6,6 +6,11 @@ from utils import llamadaSistema, obtener_ip
 from oled_display import actualizar_pantalla
 from logger import log_action
 import logging
+import subprocess
+import threading
+import time
+from datetime import datetime
+from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton
 
 def _user(message):
     return message.from_user.username or str(message.from_user.id)
@@ -157,3 +162,101 @@ def logs(bot, message, log_path: str = "log/bot.log", n: int = 20):
         bot.reply_to(message, f"Ultimas {len(chunk)} lineas:\n```\n{text}\n```", parse_mode="Markdown")
     except Exception as e:
         bot.reply_to(message, f"Error al leer el log: {e}")
+        
+# =======================================
+# =========== backup image pi ===========
+# =======================================
+
+_backup_state = {"running": False, "session": "", "filename": "", "started": ""}
+
+def backup(bot, message, ADMIN_IDS):
+    if message.from_user.id not in ADMIN_IDS:
+        bot.reply_to(message, "No tienes permiso para hacer un backup.")
+        return
+
+    if _backup_state["running"]:
+        bot.reply_to(message, 
+            f"Ya hay un backup en curso:\n"
+            f"Sesión: `{_backup_state['session']}`\n"
+            f"Iniciado: {_backup_state['started']}\n"
+            f"Archivo: `{_backup_state['filename']}`",
+            parse_mode="Markdown")
+        return
+
+    markup = InlineKeyboardMarkup(row_width=2)
+    markup.add(
+        InlineKeyboardButton("Sí, hacer backup", callback_data="backup:confirm"),
+        InlineKeyboardButton("Cancelar", callback_data="backup:cancel"),
+    )
+    bot.reply_to(message, " Esto puede tardar 15-20 min y cargará la Pi. ¿Confirmas?", reply_markup=markup)
+
+
+def backup_status(bot, message):
+    if _backup_state["running"]:
+        bot.reply_to(message,
+            f"Backup en curso:\n"
+            f"Sesión tmux: `{_backup_state['session']}`\n"
+            f"Iniciado: {_backup_state['started']}\n"
+            f"Archivo: `{_backup_state['filename']}`\n\n"
+            f"Para verlo en vivo:\n`tmux attach -t {_backup_state['session']}`",
+            parse_mode="Markdown")
+    else:
+        bot.reply_to(message, "No hay ningún backup en curso.")
+
+
+def run_backup_thread(bot, chat_id, ADMIN_IDS):
+    def _run():
+        filename = f"/media/disco/backup_raspberry_{datetime.now().strftime('%Y%m%d')}.img.gz"
+        session = f"backup_{datetime.now().strftime('%Y%m%d_%H%M')}"
+        started = datetime.now().strftime('%Y-%m-%d %H:%M')
+
+        _backup_state["running"]  = True
+        _backup_state["session"]  = session
+        _backup_state["filename"] = filename
+        _backup_state["started"]  = started
+
+        status_file = f"/tmp/backup_done_{session}"
+
+        cmd = (
+            f"tmux new-session -d -s {session} "
+            f"'sudo dd if=/dev/mmcblk0 bs=4M status=progress | gzip > {filename} "
+            f"&& echo OK > {status_file} || echo FAIL > {status_file}'"
+        )
+        subprocess.run(cmd, shell=True)
+
+        bot.send_message(chat_id,
+            f"Backup iniciado en tmux session `{session}`\n"
+            f"Archivo: `{filename}`\n\n"
+            f"Ver en vivo:\n`ssh pi@patana.local`\n`tmux attach -t {session}`",
+            parse_mode="Markdown")
+
+        # Esperar a que termine
+        while True:
+            time.sleep(30)
+            r = subprocess.run(f"tmux has-session -t {session}", shell=True)
+            if r.returncode != 0:
+                # Sesión terminada — leer resultado
+                success = False
+                if os.path.exists(status_file):
+                    with open(status_file) as f:
+                        success = f.read().strip() == "OK"
+                    os.remove(status_file)
+
+                _backup_state["running"]  = False
+                _backup_state["session"]  = ""
+                _backup_state["filename"] = ""
+                _backup_state["started"]  = ""
+
+                msg = (
+                    f"Backup completado:\n`{filename}`"
+                    if success else
+                    f"Backup falló. Revisa la sesión tmux o los logs."
+                )
+                for admin_id in ADMIN_IDS:
+                    try:
+                        bot.send_message(admin_id, msg, parse_mode="Markdown")
+                    except Exception:
+                        pass
+                break
+
+    threading.Thread(target=_run, daemon=True).start()

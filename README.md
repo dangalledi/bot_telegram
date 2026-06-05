@@ -90,6 +90,9 @@ cp .env.example .env
 | `ALERT_TEMP_C` | Temperatura (°C) que dispara alerta al admin | `70` |
 | `ALERT_RAM_PCT` | % de RAM que dispara alerta al admin | `85` |
 | `ALERT_COOLDOWN_S` | Segundos mínimos entre alertas repetidas | `1800` |
+| `HA_URL` | URL de Home Assistant | `http://localhost:8123` |
+| `HA_TOKEN` | Token de larga duración de HA | — |
+| `HA_ROUTER_AUTOMATION` | Entity ID de la automatización del router | `automation.reiniciar_router` |
 
 ### 6. Ejecutar en desarrollo
 
@@ -123,6 +126,8 @@ WantedBy=multi-user.target
 sudo systemctl daemon-reload
 sudo systemctl enable bot_telegram
 sudo systemctl start bot_telegram
+sudo systemctl stop bot_telegram
+
 ```
 
 ---
@@ -150,6 +155,11 @@ sudo systemctl start bot_telegram
 | `/zerotier` | Estado del servicio ZeroTier |
 | `/zerotier on` | Arranca ZeroTier |
 | `/zerotier off` | Para ZeroTier |
+| `/reboot` | Reinicia la Raspberry Pi |
+| `/reboot_router`, `/router` | Reinicia el router via Home Assistant |
+| `/backup` | Inicia backup completo de la SD a /media/disco |
+| `/backup_status` | Estado del backup en curso |
+| `/logs` | Ultimas 20 lineas del log (acepta numero: /logs 30) |
 
 ### Minecraft
 
@@ -189,6 +199,7 @@ bot_telegram/
 │   ├── services_handler.py       # plex, zerotier
 │   ├── minecraft_handler.py      # minecraft, mc_online, mc_last
 │   └── transmission_handler.py  # torrents
+│   └── ha_handler.py            # reboot_router, integracion Home Assistant
 └── log/                          # Rotación diaria, 14 días de histórico (ignorado en git)
 ```
 
